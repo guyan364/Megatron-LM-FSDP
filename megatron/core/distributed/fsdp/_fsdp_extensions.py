@@ -6,7 +6,7 @@ import torch.distributed as dist
 from torch.distributed._shard.sharded_tensor.api import ShardedTensor
 from torch.distributed._shard.sharded_tensor.shard import Shard
 from torch.distributed._tensor.device_mesh import DeviceMesh
-from torch.distributed.fsdp._shard_utils import (
+from megatron.core.distributed.fsdp._shard_utils import (
     _create_chunk_dtensor,
     _create_chunk_sharded_tensor,
 )

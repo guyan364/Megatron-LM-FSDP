@@ -27,7 +27,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.distributed.fsdp._common_utils import (
+from megatron.core.distributed.fsdp._common_utils import (
     _FSDPDeviceHandle,
     _named_parameters_with_duplicates,
     _no_dispatch_record_stream,

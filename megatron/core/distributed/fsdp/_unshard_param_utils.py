@@ -3,16 +3,16 @@ import warnings
 from typing import cast, Generator
 
 import torch
-import torch.distributed.fsdp._traversal_utils as traversal_utils
+import megatron.core.distributed.fsdp._traversal_utils as traversal_utils
 import torch.nn as nn
-from torch.distributed.fsdp._common_utils import (
+from megatron.core.distributed.fsdp._common_utils import (
     _FSDPState,
     _has_fsdp_params,
     _module_handle,
     HandleTrainingState,
     TrainingState,
 )
-from torch.distributed.fsdp._runtime_utils import (
+from megatron.core.distributed.fsdp._runtime_utils import (
     _get_fsdp_root_states_with_modules,
     _lazy_init,
     _reset_flat_param_grad_info_if_needed,

@@ -19,12 +19,12 @@ from typing import (
 
 import torch
 import torch.distributed as dist
-import torch.distributed.fsdp._traversal_utils as traversal_utils
+import megatron.core.distributed.fsdp._traversal_utils as traversal_utils
 import torch.nn as nn
 from torch.distributed._shard.sharded_tensor import ShardedTensor
 from torch.distributed._tensor import DTensor
 from torch.distributed.distributed_c10d import _get_pg_default_device
-from torch.distributed.fsdp._common_utils import (
+from megatron.core.distributed.fsdp._common_utils import (
     _apply_to_modules,
     _FSDPState,
     _get_module_fsdp_state_if_fully_sharded_module,
@@ -33,17 +33,17 @@ from torch.distributed.fsdp._common_utils import (
     _named_parameters_with_duplicates,
     clean_tensor_name,
 )
-from torch.distributed.fsdp._fsdp_extensions import (
+from megatron.core.distributed.fsdp._fsdp_extensions import (
     _ext_chunk_dtensor,
     _ext_chunk_tensor,
 )
-from torch.distributed.fsdp._runtime_utils import (
+from megatron.core.distributed.fsdp._runtime_utils import (
     _lazy_init,
     _reset_flat_param_grad_info_if_needed,
 )
-from torch.distributed.fsdp._shard_utils import _gather_state_dict
-from torch.distributed.fsdp.api import ShardingStrategy
-from torch.distributed.fsdp.flat_param import FlatParameter, FlatParamHandle
+from megatron.core.distributed.fsdp._shard_utils import _gather_state_dict
+from megatron.core.distributed.fsdp.api import ShardingStrategy
+from megatron.core.distributed.fsdp.flat_param import FlatParameter, FlatParamHandle
 from torch.utils._pytree import tree_map_only
 
 

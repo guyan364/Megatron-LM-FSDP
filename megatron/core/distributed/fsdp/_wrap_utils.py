@@ -6,12 +6,12 @@ from functools import partial
 from typing import Any, Callable, Dict, List, Set, Tuple, Type, Union
 
 import torch.nn as nn
-from torch.distributed.fsdp._common_utils import (
+from megatron.core.distributed.fsdp._common_utils import (
     _get_module_fsdp_state,
     _override_module_mixed_precision,
 )
 
-from torch.distributed.fsdp.wrap import (
+from megatron.core.distributed.fsdp.wrap import (
     _construct_wrap_fn,
     _or_policy,
     _Policy,

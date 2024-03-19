@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, no_type_check, Optional, Set, Tupl
 
 import torch
 import torch.distributed as dist
-import torch.distributed.fsdp._traversal_utils as traversal_utils
+import megatron.core.distributed.fsdp._traversal_utils as traversal_utils
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -14,7 +14,7 @@ from torch.autograd.graph import register_multi_grad_hook
 from torch.distributed import get_backend, get_world_size
 from torch.distributed._tensor import DeviceMesh
 from torch.distributed.algorithms._comm_hooks import LOW_PRECISION_HOOKS
-from torch.distributed.fsdp._common_utils import (
+from megatron.core.distributed.fsdp._common_utils import (
     _assert_in_training_states,
     _FSDPState,
     _get_module_fsdp_state,
@@ -24,9 +24,9 @@ from torch.distributed.fsdp._common_utils import (
     clean_tensor_name,
     TrainingState,
 )
-from torch.distributed.fsdp._init_utils import HYBRID_SHARDING_STRATEGIES
-from torch.distributed.fsdp.api import BackwardPrefetch
-from torch.distributed.fsdp.flat_param import (
+from megatron.core.distributed.fsdp._init_utils import HYBRID_SHARDING_STRATEGIES
+from megatron.core.distributed.fsdp.api import BackwardPrefetch
+from megatron.core.distributed.fsdp.flat_param import (
     FlatParameter,
     FlatParamHandle,
     HandleShardingStrategy,

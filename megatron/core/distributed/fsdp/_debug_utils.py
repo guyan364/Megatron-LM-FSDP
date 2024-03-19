@@ -1,8 +1,8 @@
 from typing import Dict, List, Tuple
 
 import torch
-import torch.distributed.fsdp.flat_param as flat_param_file
-from torch.distributed.fsdp._common_utils import (
+import megatron.core.distributed.fsdp.flat_param as flat_param_file
+from megatron.core.distributed.fsdp._common_utils import (
     _apply_to_modules,
     _get_module_fsdp_state,
     clean_tensor_name,

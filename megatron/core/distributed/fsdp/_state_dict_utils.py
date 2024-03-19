@@ -19,7 +19,7 @@ from torch.distributed._shard.sharded_tensor import (
 from torch.distributed._tensor import DTensor, Replicate
 
 from torch.distributed.distributed_c10d import _get_pg_default_device
-from torch.distributed.fsdp._common_utils import (
+from megatron.core.distributed.fsdp._common_utils import (
     _FSDPState,
     _get_module_fsdp_state_if_fully_sharded_module,
     _has_fsdp_params,
@@ -29,13 +29,13 @@ from torch.distributed.fsdp._common_utils import (
     FSDP_PREFIX,
     FSDP_WRAPPED_MODULE,
 )
-from torch.distributed.fsdp._runtime_utils import (
+from megatron.core.distributed.fsdp._runtime_utils import (
     _cast_buffers_to_dtype_and_device,
     _get_orig_buffer_dtypes,
     _lazy_init,
     _reset_flat_param_grad_info_if_needed,
 )
-from torch.distributed.fsdp.api import (
+from megatron.core.distributed.fsdp.api import (
     FullStateDictConfig,
     ShardingStrategy,
     StateDictType,
