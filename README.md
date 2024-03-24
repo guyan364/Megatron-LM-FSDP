@@ -1,3 +1,11 @@
+# Megatron-LM-FSDP
+
+Integrating PyTorch FSDP into Megatron-LM. The project is in its early development phase, aiming to support FSDP training for GPT-like models.
+
+See `examples/fsdp/` for example scripts.
+
+## Below is Megatron-LM's original README. 
+
 <div align="center">
 
 Megatron-LM & Megatron-Core
