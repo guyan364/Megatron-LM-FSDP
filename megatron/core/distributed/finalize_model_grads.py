@@ -93,7 +93,10 @@ def _allreduce_layernorm_grads(model: List[torch.nn.Module], config: Transformer
         for model_chunk in model:
             for param in get_attr_wrapped_model(model_chunk, 'parameters')():
                 if getattr(param, 'sequence_parallel', False):
-                    grad = param.main_grad
+                    if hasattr(param, "main_grad"):
+                        grad = param.main_grad
+                    else:
+                        grad = param.grad
                     grads.append(grad.data)
         coalesced = _flatten_dense_tensors(grads)
         torch.distributed.all_reduce(

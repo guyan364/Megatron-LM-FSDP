@@ -23,11 +23,12 @@ from megatron import (
 from megatron.core import DistributedDataParallel as DDP
 from megatron.core import mpu
 from megatron.core.tensor_parallel import param_is_not_tensor_parallel_duplicate
+from megatron.core.distributed.fsdp import FullyShardedDataParallel as FSDP
 from megatron.model import Float16Module
 from megatron.model.module import param_is_not_shared
 
 
-ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
+ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module, FSDP)
 
 
 def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
@@ -38,7 +39,10 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
     unwrapped_model = []
     for model_module in model:
         while isinstance(model_module, module_instances):
-            model_module = model_module.module
+            if isinstance(model_module, FSDP):
+                model_module = model_module._fsdp_wrapped_module
+            else:
+                model_module = model_module.module
         unwrapped_model.append(model_module)
     if not return_list:
         return unwrapped_model[0]

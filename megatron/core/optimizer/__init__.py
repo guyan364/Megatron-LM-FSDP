@@ -14,6 +14,7 @@ from .distrib_optimizer import DistributedOptimizer
 from .grad_scaler import ConstantGradScaler, DynamicGradScaler
 from .optimizer import ChainedOptimizer, Float16OptimizerWithFloat16Params, FP32Optimizer
 from .optimizer_config import OptimizerConfig
+from ..distributed import FullyShardedDataParallel as FSDP
 
 logger = getLogger(__name__)
 
@@ -231,7 +232,7 @@ def get_megatron_optimizer(
     per_model_buffers = {}
     per_model_ep_buffers = {}
     for model_idx, model_chunk in enumerate(model_chunks):
-        if hasattr(model_chunk, 'buffers'):
+        if hasattr(model_chunk, 'buffers') and not isinstance(model_chunk, FSDP):
             per_model_buffers[model_idx] = model_chunk.buffers
             per_model_ep_buffers[model_idx] = model_chunk.expert_parallel_buffers
 

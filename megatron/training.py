@@ -35,7 +35,10 @@ from megatron import print_rank_last
 from megatron.checkpointing import load_checkpoint
 from megatron.checkpointing import save_checkpoint
 from megatron.model import Float16Module
+from megatron.model import GPTModel
 from megatron.core.distributed import DistributedDataParallel as DDP
+from megatron.core.distributed import FullyShardedDataParallel as FSDP
+from megatron.core.distributed import fsdp
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import get_megatron_optimizer, OptimizerConfig
@@ -50,8 +53,6 @@ from megatron.utils import calc_params_l2_norm
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.utils import report_memory
 from megatron.model.vision.knn_monitor import compute_feature_bank
-from megatron.core.distributed import fsdp
-from megatron.core.distributed.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 
 
 def print_datetime(string):
@@ -566,6 +567,22 @@ def setup_model_and_optimizer(model_provider_func,
     config.timers = timers
     optimizer = get_megatron_optimizer(config, model, no_wd_decay_cond,
                                        scale_lr_cond, lr_mult)
+
+    def fsdp_get_model_parallel_group(self):
+        return None
+    
+    if args.use_fsdp:
+        from megatron.core.optimizer import ChainedOptimizer, Float16OptimizerWithFloat16Params
+        if isinstance(optimizer, ChainedOptimizer):
+            for optim in optimizer.chained_optimizers:
+                assert isinstance(optim, Float16OptimizerWithFloat16Params)
+                optim.old_get_model_parallel_group = optim.get_model_parallel_group
+                optim.get_model_parallel_group = fsdp_get_model_parallel_group.__get__(optim, Float16OptimizerWithFloat16Params)
+        else:
+            assert isinstance(optimizer, Float16OptimizerWithFloat16Params)
+            optimizer.old_get_model_parallel_group = optimizer.get_model_parallel_group
+            optimizer.get_model_parallel_group = fsdp_get_model_parallel_group.__get__(optimizer, Float16OptimizerWithFloat16Params)
+
     opt_param_scheduler = get_optimizer_param_scheduler(optimizer)
 
     if args.load is not None:
@@ -581,6 +598,7 @@ def setup_model_and_optimizer(model_provider_func,
     # get model without FP16 and/or DDP wrappers
     if args.iteration == 0 and len(unwrapped_model) == 1 \
         and hasattr(unwrapped_model[0], 'init_state_dict_from_bert'):
+        assert not args.use_fsdp, "FSDP is not supported with ICT"
         print_rank_0("Initializing ICT from pretrained BERT model")
         unwrapped_model[0].init_state_dict_from_bert()
         if args.fp16:
@@ -596,9 +614,11 @@ def train_step(forward_step_func, data_iterator,
     args = get_args()
     timers = get_timers()
 
-    # Set grad to zero.
-    for model_chunk in model:
-        model_chunk.zero_grad_buffer()
+    # Megatron DDP module only
+    if not args.use_fsdp:
+        # Set grad to zero.
+        for model_chunk in model:
+            model_chunk.zero_grad_buffer()
     optimizer.zero_grad()
 
     # Forward pass.
@@ -619,6 +639,7 @@ def train_step(forward_step_func, data_iterator,
 
     # Vision gradients.
     if getattr(args, 'vision_pretraining', False) and args.vision_pretraining_type == "dino":
+        assert not args.use_fsdp, "FSDP is not supported with DINO"
         unwrapped_model = unwrap_model(model[0])
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
 
@@ -629,6 +650,7 @@ def train_step(forward_step_func, data_iterator,
 
     # Vision momentum.
     if getattr(args, 'vision_pretraining', False) and args.vision_pretraining_type == "dino":
+        assert not args.use_fsdp, "FSDP is not supported with DINO"
         unwrapped_model = unwrap_model(model[0])
         unwrapped_model.update_momentum(args.curr_iteration)
 
