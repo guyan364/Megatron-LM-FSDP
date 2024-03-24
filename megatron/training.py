@@ -51,6 +51,8 @@ from megatron.utils import calc_params_l2_norm
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.utils import report_memory
 from megatron.model.vision.knn_monitor import compute_feature_bank
+from megatron.core.distributed import fsdp
+from megatron.core.distributed.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 
 
 def print_datetime(string):
@@ -317,10 +319,11 @@ def update_train_iters(args):
     print_rank_0('setting training iterations to {}'.format(args.train_iters))
 
 
-def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True):
+def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True, wrap_with_fsdp=False):
     """Build the model."""
     args = get_args()
     args.model_type = model_type
+    assert not (wrap_with_ddp and wrap_with_fsdp), "Cannot wrap with both DDP and FSDP"
 
     # Build model.
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \
@@ -422,6 +425,77 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
             for model_module in model:
                 model_module.broadcast_params()
 
+    if wrap_with_fsdp:
+        assert args.expert_model_parallel_size <= 1, "Expert model parallelism is not supported with FSDP."
+        assert not args.use_distributed_optimizer, "FSDP use normal optimizer, not distributed optimizer."
+        assert not args.gradient_accumulation_fusion, "FSDP does not support gradient accumulation fusion."
+        SHARDING_STRATEGY = {
+            "full_shard": fsdp.ShardingStrategy.FULL_SHARD,
+            "shard_grad_op": fsdp.ShardingStrategy.SHARD_GRAD_OP,
+        }
+        BACKWARD_PREFETCH = {
+            "none": None,
+            "pre": fsdp.BackwardPrefetch.BACKWARD_PRE,
+            "post": fsdp.BackwardPrefetch.BACKWARD_POST
+        }
+        from megatron.model.transformer import ParallelTransformerLayer
+        from megatron.core.transformer import TransformerLayer
+        from megatron.core.parallel_state import update_use_fsdp_state
+        transformer_layer_class = [ParallelTransformerLayer, TransformerLayer]
+        update_use_fsdp_state(True)
+
+        # Layer level wrap
+        def fsdp_wrap_func(
+            module: torch.nn.Module,
+            recurse: bool,
+            nonwrapped_numel: int
+        ):
+            def find_layer(module):
+                if module.__class__ in transformer_layer_class:
+                    return True
+                for _, child in module.named_children():
+                    layer = find_layer(child)
+                    if layer:
+                        return True
+                return False
+
+
+            has_layer = find_layer(module)
+
+            return has_layer
+
+        ignored_params = []
+        from megatron.core.utils import get_attr_wrapped_model
+        if args.sequence_parallel and args.tensor_model_parallel_size > 1:
+            for model_chunk in model:
+                for param in get_attr_wrapped_model(model_chunk, 'parameters')():
+                    if getattr(param, 'sequence_parallel', False):
+                        ignored_params.append(param)
+
+
+        if not args.untie_embeddings_and_output_weights and args.pipeline_model_parallel_size > 1:
+            assert len(model) == 1, "Only support normal pipeline model parallel."
+            model_module = get_attr_wrapped_model(model[0], 'pre_process', return_model_obj=True)
+            if model_module.share_embeddings_and_output_weights:
+                weight = model_module.shared_embedding_or_output_weight()
+                ignored_params.append(weight)
+
+        model = [
+            FSDP(
+                model_chunk,
+                auto_wrap_policy=fsdp_wrap_func,
+                process_group=mpu.get_data_parallel_group(with_context_parallel=True),
+                sharding_strategy=SHARDING_STRATEGY[args.fsdp_sharding_strategy],
+                device_id=torch.cuda.current_device(),
+                limit_all_gathers=True, # make sure you have enough GPU memory to enable this
+                sync_module_states=args.data_parallel_random_init,
+                forward_prefetch=args.fsdp_forward_prefetch,
+                backward_prefetch=BACKWARD_PREFETCH[args.fsdp_backward_prefetch],
+                ignored_states = ignored_params
+            )
+            for model_chunk in model
+        ]
+
     return model
 
 
@@ -483,7 +557,7 @@ def setup_model_and_optimizer(model_provider_func,
     """Setup model and optimizer."""
     args = get_args()
 
-    model = get_model(model_provider_func, model_type)
+    model = get_model(model_provider_func, model_type, not args.use_fsdp, args.use_fsdp)
     unwrapped_model = unwrap_model(model)
 
     kwargs = {}
