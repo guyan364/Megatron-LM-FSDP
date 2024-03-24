@@ -3,7 +3,6 @@ import torch
 import torch.distributed as dist
 from . import fsdp
 from .fsdp import FullyShardedDataParallel as torchFSDP
-from ccdl import comm
 
 class FullyShardedDataParallel(torchFSDP):
     def __init__(self, *args , **kwargs):
