@@ -514,6 +514,8 @@ class TransformerLanguageModel(MegatronModule):
             if self.add_pooler and self.post_process:
                 return encoder_output, pooled_output
             else:
+                if hasattr(self, "_post_process_hook"):
+                    return self._post_process_hook(encoder_output)
                 return encoder_output
 
         # Decoder embedding.
@@ -624,3 +626,6 @@ class TransformerLanguageModel(MegatronModule):
                 'could not find data for pooler in the checkpoint'
             self.decoder.load_state_dict(state_dict[self._decoder_key],
                                          strict=strict)
+
+    def register_postprocess_hook(self, func):
+        self._post_process_hook = func

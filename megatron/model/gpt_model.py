@@ -3,6 +3,7 @@
 """GPT-2 model."""
 
 import torch
+import functools
 
 from megatron import get_args
 from megatron.core import tensor_parallel
@@ -13,15 +14,9 @@ from .language_model import parallel_lm_logits
 from .language_model import get_language_model
 
 
-def post_language_model_processing(lm_output, labels, logit_weights,
-                                   parallel_output,
-                                   fp16_lm_cross_entropy):
+def post_language_model_processing(output, labels, fp16_lm_cross_entropy):
 
     # Output. Format [s b h]
-    output = parallel_lm_logits(
-        lm_output,
-        logit_weights,
-        parallel_output)
 
     if labels is None:
         # [s b h] => [b s h]
@@ -69,6 +64,15 @@ class GPTModel(MegatronModule):
         if not args.untie_embeddings_and_output_weights:
             self.initialize_word_embeddings()
 
+        if post_process:
+            self.language_model.register_postprocess_hook(
+                functools.partial(
+                    parallel_lm_logits, 
+                    word_embeddings_weight=self.language_model.output_layer.weight if self.untie_embeddings_and_output_weights else self.shared_embedding_or_output_weight(),
+                    parallel_output=self.parallel_output
+                )
+            )
+
     def set_input_tensor(self, input_tensor):
         """See megatron.model.transformer.set_input_tensor()"""
         self.language_model.set_input_tensor(input_tensor)
@@ -91,8 +95,6 @@ class GPTModel(MegatronModule):
         if self.post_process:
             return post_language_model_processing(
                 lm_output, labels,
-                self.language_model.output_layer.weight if self.untie_embeddings_and_output_weights else self.shared_embedding_or_output_weight(),
-                self.parallel_output,
                 self.fp16_lm_cross_entropy)
         else:
             return lm_output
