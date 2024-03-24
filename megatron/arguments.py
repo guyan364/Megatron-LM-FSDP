@@ -42,6 +42,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     parser = _add_transformer_engine_args(parser)
     parser = _add_retro_args(parser)
     parser = _add_experimental_args(parser)
+    parser = _add_fsdp_args(parser)
 
     # Custom arguments.
     if extra_args_provider is not None:
@@ -1514,4 +1515,15 @@ def _add_experimental_args(parser):
     group.add_argument('--yaml-cfg', type=str, default=None, 
                        help = 'Config file to add additional arguments')
 
+    return parser
+
+def _add_fsdp_args(parser):
+    group = parser.add_argument_group(title="fsdp")
+    group.add_argument("--use-fsdp", action="store_true",
+                       help="Use torch FSDP for distributed data parallelism")
+
+    group.add_argument("--fsdp-sharding-strategy", default="full_shard", choices=["full_shard", "shard_grad_op"])
+    group.add_argument("--fsdp-forward-prefetch", action="store_true",
+                       help="FSDP forward prefetch")
+    group.add_argument("--fsdp-backward-prefetch", type=str, default="none", choices=["none", "pre", "post"])
     return parser
