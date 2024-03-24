@@ -105,6 +105,7 @@ class TELinear(te.pytorch.Linear):
         # and we don't have to deal with the zero length Tensor.
         self.te_return_bias = skip_bias_add and bias
         self.is_first_microbatch = True
+        self.disable_parameter_transpose_cache = self.config.disable_parameter_transpose_cache
         if skip_weight_param_allocation:
             raise ValueError(
                 'Transformer Engine linear layers do not support skip_weight_param_allocation'
@@ -132,7 +133,9 @@ class TELinear(te.pytorch.Linear):
             fuse_wgrad_accumulation=self.config.gradient_accumulation_fusion,
             tp_group=get_tensor_model_parallel_group(check_initialized=False),
             tp_size=self.config.tensor_model_parallel_size,
-            get_rng_state_tracker=get_cuda_rng_tracker,
+            get_rng_state_tracker=get_cuda_rng_tracker
+            if get_cuda_rng_tracker().is_initialized()
+            else None,
             init_method=condition_init_method(config, init_method),
             bias=bias,
             return_bias=self.te_return_bias,
@@ -141,7 +144,10 @@ class TELinear(te.pytorch.Linear):
         )
 
     def forward(self, x):
-        out = super().forward(x, is_first_microbatch=self.is_first_microbatch)
+        _is_first_microbatch = (
+            None if self.disable_parameter_transpose_cache else self.is_first_microbatch
+        )
+        out = super().forward(x, is_first_microbatch=_is_first_microbatch)
         self.is_first_microbatch = False
 
         # TE only returns a tuple when return_bias is True, otherwise
@@ -192,6 +198,7 @@ class TELayerNormColumnParallelLinear(te.pytorch.LayerNormLinear):
         # and we don't have to deal with the zero length Tensor.
         self.te_return_bias = skip_bias_add and bias
         self.is_first_microbatch = True
+        self.disable_parameter_transpose_cache = self.config.disable_parameter_transpose_cache
         extra_kwargs = _get_extra_te_kwargs(config)
 
         # Only Transformer-Engine version >= 0.11.0 supports `RMSNorm`
@@ -223,7 +230,9 @@ class TELayerNormColumnParallelLinear(te.pytorch.LayerNormLinear):
             fuse_wgrad_accumulation=self.config.gradient_accumulation_fusion,
             tp_group=get_tensor_model_parallel_group(check_initialized=False),
             tp_size=self.config.tensor_model_parallel_size,
-            get_rng_state_tracker=get_cuda_rng_tracker,
+            get_rng_state_tracker=get_cuda_rng_tracker
+            if get_cuda_rng_tracker().is_initialized()
+            else None,
             init_method=condition_init_method(config, init_method),
             bias=bias,
             return_bias=self.te_return_bias,
@@ -234,7 +243,10 @@ class TELayerNormColumnParallelLinear(te.pytorch.LayerNormLinear):
         )
 
     def forward(self, x):
-        out = super().forward(x, is_first_microbatch=self.is_first_microbatch)
+        _is_first_microbatch = (
+            None if self.disable_parameter_transpose_cache else self.is_first_microbatch
+        )
+        out = super().forward(x, is_first_microbatch=_is_first_microbatch)
         self.is_first_microbatch = False
 
         # TE only returns a tuple when return_bias is True, otherwise
@@ -428,7 +440,9 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             attn_mask_type=attn_mask_type.name,
             sequence_parallel=self.config.sequence_parallel,
             tp_size=self.config.tensor_model_parallel_size,
-            get_rng_state_tracker=get_cuda_rng_tracker,
+            get_rng_state_tracker=get_cuda_rng_tracker
+            if get_cuda_rng_tracker().is_initialized()
+            else None,
             tp_group=get_tensor_model_parallel_group(check_initialized=False),
             layer_number=layer_number,
             **extra_kwargs,
