@@ -37,7 +37,16 @@ def _allreduce_word_embedding_grads(model: List[torch.nn.Module], config: Transf
         model_module = get_attr_wrapped_model(model_module, 'pre_process', return_model_obj=True)
         if model_module.share_embeddings_and_output_weights:
             weight = model_module.shared_embedding_or_output_weight()
-            grad = weight.main_grad
+            if hasattr(weight, "main_grad"):
+                grad = weight.main_grad
+            else:
+                grad = weight.grad
+            
+            if parallel_state.get_data_parallel_world_size() > 1 and parallel_state.use_fsdp():
+                grad /= parallel_state.get_data_parallel_world_size()
+                torch.distributed.all_reduce(
+                    grad, group=parallel_state.get_data_parallel_group()
+                )
             torch.distributed.all_reduce(grad, group=parallel_state.get_embedding_group())
 
 
@@ -56,6 +65,11 @@ def _allreduce_position_embedding_grads(model: List[torch.nn.Module], config: Tr
         grad = get_attr_wrapped_model(
             model_module, 'language_model.embedding.position_embeddings.weight.main_grad'
         )
+        if parallel_state.get_data_parallel_world_size() > 1 and parallel_state.use_fsdp():
+            grad /= parallel_state.get_data_parallel_world_size()
+            torch.distributed.all_reduce(
+                grad, group=parallel_state.get_data_parallel_group()
+            )
         torch.distributed.all_reduce(grad, group=parallel_state.get_position_embedding_group())
 
 
@@ -85,6 +99,11 @@ def _allreduce_layernorm_grads(model: List[torch.nn.Module], config: Transformer
         torch.distributed.all_reduce(
             coalesced, group=parallel_state.get_tensor_model_parallel_group()
         )
+        if parallel_state.get_data_parallel_world_size() > 1 and parallel_state.use_fsdp():
+            coalesced /= parallel_state.get_data_parallel_world_size()
+            torch.distributed.all_reduce(
+                coalesced, group=parallel_state.get_data_parallel_group()
+            )
         for buf, synced in zip(grads, _unflatten_dense_tensors(coalesced, grads)):
             buf.copy_(synced)
 

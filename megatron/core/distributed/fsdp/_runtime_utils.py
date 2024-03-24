@@ -55,6 +55,7 @@ class _PrefetchMode(Enum):
     BACKWARD = auto()
     FORWARD = auto()
 
+_LAST_ITERATION=True
 
 def _get_fsdp_root_states_with_modules(
     module: nn.Module,
@@ -678,7 +679,10 @@ def _pre_backward_hook(
         # attach it to the outermost backward graph task so that it is called
         # after all backward calls complete
         if state._is_root and not state._post_backward_callback_queued:
-            _register_post_backward_final_callback(state, module)
+            if _LAST_ITERATION:
+                _register_post_backward_final_callback(state, module)
+            else:
+                _register_post_backward_callback(state, module)
             _reset_flat_param_grad_info_if_needed(state._all_handles)
         elif handle:
             allowed_states = [TrainingState.IDLE]
@@ -1118,6 +1122,53 @@ def _post_backward_final_callback(
     # Reset for cases like one forward and multiple backwards
     root_state._post_backward_callback_queued = False
 
+@no_type_check
+@torch.no_grad()
+def _post_backward_callback(
+    state: _FSDPState,
+    module: nn.Module,
+):
+    """
+    This waits for the post-backward to finish and performs some final cleanup.
+    This runs at the end of the entire backward pass and should only be called
+    on the root FSDP instance.
+    """
+    _p_assert(
+        state._is_root,
+        "The post-backward callback should only be called on the root FSDP instance",
+    )
+    root_state = state
+    assert not _LAST_ITERATION
+
+    if root_state._sync_gradients:
+        current_stream = state._device_handle.current_stream()
+        # TODO (rohan-varma): this also waits for the overlapped optimizer step to finish
+        # since it currently runs in the post-backward stream. That can be
+        # pushed to the next forward if run in a different stream
+        current_stream.wait_stream(root_state._post_backward_stream)
+        if root_state._all_reduce_stream is not current_stream:  # uses HSDP
+            current_stream.wait_stream(root_state._all_reduce_stream)
+        if root_state.cpu_offload.offload_params:
+            # Wait for non-blocking GPU -> CPU sharded gradient copies from the
+            # post-backward hooks to finish explicitly since CPU gradients do
+            # not automatically synchronize with the GPU
+            state._device_handle.current_stream().synchronize()
+    root_state._exec_order_data.next_iter()
+
+    for fsdp_state in state._all_fsdp_states:
+        _catch_all_reshard(fsdp_state)
+        _finalize_params(fsdp_state, False)
+        fsdp_state.training_state = TrainingState.IDLE
+        handle = fsdp_state._handle
+        if handle:
+            handle._ran_pre_backward_hook = False
+            handle._needs_pre_backward_unshard = True # had work to do
+            handle._post_forward_index = None
+            handle._training_state = HandleTrainingState.IDLE
+            handle._prefetched = False
+    # Reset for cases like one forward and multiple backwards
+    root_state._post_backward_callback_queued = False
+
 
 @no_type_check
 def _catch_all_reshard(
@@ -1160,13 +1211,14 @@ def _catch_all_reshard(
 @no_type_check
 def _finalize_params(
     state: _FSDPState,
+    remove_handle: bool = True
 ) -> None:
     """Finalizes the parameters before the next iteration."""
     handle = state._handle
     if not handle:
         return
     flat_param = handle.flat_param
-    if hasattr(flat_param, "_post_backward_hook_state"):
+    if hasattr(flat_param, "_post_backward_hook_state") and remove_handle:
         post_backward_hook_state_len = len(flat_param._post_backward_hook_state)
         expected_post_backward_hook_state_len = int(flat_param.requires_grad) + 1
         _p_assert(
@@ -1504,6 +1556,27 @@ def _register_post_backward_final_callback(
         functools.partial(_post_backward_final_callback, state, module)
     )
 
+@no_type_check
+def _register_post_backward_callback(
+    state: _FSDPState, module: nn.Module
+) -> None:
+    """
+    Registers the post-backward final callback that runs at the end of the
+    backward pass. This should be called from the root FSDP instance at the
+    beginning of the pre-backward.
+    """
+    _p_assert(
+        state._is_root,
+        "Only the root FSDP instance should register the post-backward callback",
+    )
+    if state._post_backward_callback_queued:
+        return
+    _assert_in_training_states(state, [TrainingState.IDLE])
+    state._post_backward_callback_queued = True
+    Variable._execution_engine.queue_callback(
+        functools.partial(_post_backward_callback, state, module)
+    )
+
 
 def _wait_for_computation_stream(
     computation_stream: torch.Stream,
@@ -1611,3 +1684,7 @@ def _cast_buffers_to_dtype_and_device(
             buffer.data = buffer.to(device=device)
         else:
             buffer.data = buffer.to(device=device, dtype=buffer_dtype)
+
+def set_last_iteration(value):
+    global _LAST_ITERATION
+    _LAST_ITERATION = value

@@ -74,6 +74,9 @@ _TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP = None
 # Memory buffers to avoid dynamic memory allocation
 _GLOBAL_MEMORY_BUFFER = None
 
+# FSDP flag
+_USE_FSDP = False
+
 
 def get_nccl_options(pg_name, nccl_comm_cfgs):
     """Set the NCCL process group options.
@@ -1023,3 +1026,11 @@ def destroy_model_parallel():
     _MPU_EXPERT_MODEL_PARALLEL_WORLD_SIZE = None
     global _MPU_EXPERT_MODEL_PARALLEL_RANK
     _MPU_EXPERT_MODEL_PARALLEL_RANK = None
+
+
+def update_use_fsdp_state(value):
+    global _USE_FSDP
+    _USE_FSDP = value
+
+def use_fsdp():
+    return _USE_FSDP

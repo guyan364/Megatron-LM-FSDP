@@ -234,7 +234,7 @@ def forward_step(
     return [output_tensor]
 
 
-def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config):
+def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, last_iteration=True):
     """Backward step through passed-in output tensor.
 
     If last stage, output_tensor_grad is None, otherwise gradient of loss
@@ -268,6 +268,8 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     if output_tensor_grad[0] is None and config.grad_scale_func is not None:
         output_tensor[0] = config.grad_scale_func(output_tensor[0])
 
+    from ..distributed.fsdp._runtime_utils import set_last_iteration
+    set_last_iteration(last_iteration)
     if config.deallocate_pipeline_outputs:
         custom_backward(output_tensor[0], output_tensor_grad[0])
     else:
@@ -1288,7 +1290,8 @@ def forward_backward_pipelining_without_interleaving(
                     enable_grad_sync()
 
             input_tensor_grad = backward_step(
-                input_tensor, output_tensor, output_tensor_grad, model_type, config
+                input_tensor, output_tensor, output_tensor_grad, model_type, config, 
+                last_iteration=(not last_iteration) or (num_warmup_microbatches == 0)
             )
 
             if last_iteration:
@@ -1318,7 +1321,8 @@ def forward_backward_pipelining_without_interleaving(
             output_tensor_grad = recv_backward(send_tensor_shapes, config)
 
             input_tensor_grad = backward_step(
-                input_tensor, output_tensor, output_tensor_grad, model_type, config
+                input_tensor, output_tensor, output_tensor_grad, model_type, config,
+                last_iteration=(i==num_warmup_microbatches-1)
             )
 
             send_backward(input_tensor_grad, recv_tensor_shapes, config)
