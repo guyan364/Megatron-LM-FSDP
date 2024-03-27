@@ -33,6 +33,7 @@ from megatron.core.distributed.fsdp.flat_param import (
     HandleTrainingState,
     RESHARD_AFTER_FORWARD_HANDLE_STRATEGIES,
 )
+from megatron.core.pipeline_parallel.schedules import is_last_backward
 from torch.distributed.utils import (
     _apply_to_tensors,
     _cast_forward_inputs,
@@ -54,6 +55,7 @@ HOMOGENEOUS_ATTR_NAMES = (
 class _PrefetchMode(Enum):
     BACKWARD = auto()
     FORWARD = auto()
+
 
 def _get_fsdp_root_states_with_modules(
     module: nn.Module,
@@ -677,10 +679,11 @@ def _pre_backward_hook(
         # attach it to the outermost backward graph task so that it is called
         # after all backward calls complete
         if state._is_root and not state._post_backward_callback_queued:
-            if hasattr(module, "_last_iteration") and (not module._last_iteration):
-                _register_post_backward_callback(state, module)
-            else:
+            if is_last_backward():
                 _register_post_backward_final_callback(state, module)
+            else:
+                _register_post_backward_callback(state, module)
+            _reset_flat_param_grad_info_if_needed(state._all_handles)
         elif handle:
             allowed_states = [TrainingState.IDLE]
             if _is_composable(state):
@@ -1135,7 +1138,7 @@ def _post_backward_callback(
         "The post-backward callback should only be called on the root FSDP instance",
     )
     root_state = state
-    assert not module._last_iteration, "This should not be called on the last iteration"
+    assert not is_last_backward()
 
     if root_state._sync_gradients:
         current_stream = state._device_handle.current_stream()

@@ -15,6 +15,8 @@ from megatron.core.utils import get_attr_wrapped_model, get_model_config, get_mo
 # Types
 Shape = Union[List[int], torch.Size]
 
+_LAST_BACKWARD = False
+
 
 def get_forward_backward_func():
     """Retrieves the appropriate forward_backward function given the
@@ -220,7 +222,6 @@ def forward_step(
         # Set the loss scale
         MoEAuxLossAutoScaler.set_loss_scale(loss_scale / num_microbatches)
 
-    output_tensor._model = model
     # If T5 model (or other model with encoder and decoder)
     # and in decoder stack, then send encoder_hidden_state
     # downstream as well.
@@ -235,7 +236,7 @@ def forward_step(
     return [output_tensor]
 
 
-def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, last_iteration=True):
+def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, last_backward=True):
     """Backward step through passed-in output tensor.
 
     If last stage, output_tensor_grad is None, otherwise gradient of loss
@@ -264,17 +265,13 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
         output_tensor = [output_tensor]
     if not isinstance(output_tensor_grad, list):
         output_tensor_grad = [output_tensor_grad]
-    
-    def set_last_iteration(module):
-        module._last_iteration = last_iteration
-
-    output_tensor[0]._model.apply(set_last_iteration)
 
     # Backward pass.
     if output_tensor_grad[0] is None and config.grad_scale_func is not None:
         output_tensor[0] = config.grad_scale_func(output_tensor[0])
 
-
+    global _LAST_BACKWARD
+    _LAST_BACKWARD = last_backward
     if config.deallocate_pipeline_outputs:
         custom_backward(output_tensor[0], output_tensor_grad[0])
     else:
@@ -372,7 +369,7 @@ def forward_backward_no_pipelining(
                 is_first_microbatch=check_first_val_step(first_val_step, forward_only, i == 0),
             )
             if not forward_only:
-                backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, last_iteration=False)
+                backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, False)
 
     # Run computation for last microbatch out of context handler (want to
     # synchronize gradients).
@@ -1296,7 +1293,7 @@ def forward_backward_pipelining_without_interleaving(
 
             input_tensor_grad = backward_step(
                 input_tensor, output_tensor, output_tensor_grad, model_type, config, 
-                last_iteration=last_iteration and (num_warmup_microbatches == 0)
+                last_backward=last_iteration and (num_warmup_microbatches == 0)
             )
 
             if last_iteration:
@@ -1327,7 +1324,7 @@ def forward_backward_pipelining_without_interleaving(
 
             input_tensor_grad = backward_step(
                 input_tensor, output_tensor, output_tensor_grad, model_type, config,
-                last_iteration=(i==num_warmup_microbatches-1)
+                last_backward=(i==num_warmup_microbatches-1)
             )
 
             send_backward(input_tensor_grad, recv_tensor_shapes, config)
@@ -1348,3 +1345,7 @@ def forward_backward_pipelining_without_interleaving(
         config.finalize_model_grads_func([model])
 
     return forward_data_store
+
+
+def is_last_backward():
+    return _LAST_BACKWARD
