@@ -55,8 +55,6 @@ class _PrefetchMode(Enum):
     BACKWARD = auto()
     FORWARD = auto()
 
-_LAST_ITERATION=True
-
 def _get_fsdp_root_states_with_modules(
     module: nn.Module,
 ) -> Tuple[List[_FSDPState], List[nn.Module]]:
@@ -679,11 +677,10 @@ def _pre_backward_hook(
         # attach it to the outermost backward graph task so that it is called
         # after all backward calls complete
         if state._is_root and not state._post_backward_callback_queued:
-            if _LAST_ITERATION:
-                _register_post_backward_final_callback(state, module)
-            else:
+            if hasattr(module, "_last_iteration") and (not module._last_iteration):
                 _register_post_backward_callback(state, module)
-            _reset_flat_param_grad_info_if_needed(state._all_handles)
+            else:
+                _register_post_backward_final_callback(state, module)
         elif handle:
             allowed_states = [TrainingState.IDLE]
             if _is_composable(state):
@@ -1138,7 +1135,7 @@ def _post_backward_callback(
         "The post-backward callback should only be called on the root FSDP instance",
     )
     root_state = state
-    assert not _LAST_ITERATION
+    assert not module._last_iteration, "This should not be called on the last iteration"
 
     if root_state._sync_gradients:
         current_stream = state._device_handle.current_stream()
@@ -1684,7 +1681,3 @@ def _cast_buffers_to_dtype_and_device(
             buffer.data = buffer.to(device=device)
         else:
             buffer.data = buffer.to(device=device, dtype=buffer_dtype)
-
-def set_last_iteration(value):
-    global _LAST_ITERATION
-    _LAST_ITERATION = value

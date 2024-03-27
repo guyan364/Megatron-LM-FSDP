@@ -220,6 +220,7 @@ def forward_step(
         # Set the loss scale
         MoEAuxLossAutoScaler.set_loss_scale(loss_scale / num_microbatches)
 
+    output_tensor._model = model
     # If T5 model (or other model with encoder and decoder)
     # and in decoder stack, then send encoder_hidden_state
     # downstream as well.
@@ -263,13 +264,17 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
         output_tensor = [output_tensor]
     if not isinstance(output_tensor_grad, list):
         output_tensor_grad = [output_tensor_grad]
+    
+    def set_last_iteration(module):
+        module._last_iteration = last_iteration
+
+    output_tensor[0]._model.apply(set_last_iteration)
 
     # Backward pass.
     if output_tensor_grad[0] is None and config.grad_scale_func is not None:
         output_tensor[0] = config.grad_scale_func(output_tensor[0])
 
-    from ..distributed.fsdp._runtime_utils import set_last_iteration
-    set_last_iteration(last_iteration)
+
     if config.deallocate_pipeline_outputs:
         custom_backward(output_tensor[0], output_tensor_grad[0])
     else:
