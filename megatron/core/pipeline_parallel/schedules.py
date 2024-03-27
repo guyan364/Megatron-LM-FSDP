@@ -372,7 +372,7 @@ def forward_backward_no_pipelining(
                 is_first_microbatch=check_first_val_step(first_val_step, forward_only, i == 0),
             )
             if not forward_only:
-                backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
+                backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, last_iteration=False)
 
     # Run computation for last microbatch out of context handler (want to
     # synchronize gradients).
@@ -391,7 +391,7 @@ def forward_backward_no_pipelining(
     )
 
     if not forward_only:
-        backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
+        backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, True)
 
     if config.timers is not None:
         config.timers('forward-backward').stop()
@@ -1296,7 +1296,7 @@ def forward_backward_pipelining_without_interleaving(
 
             input_tensor_grad = backward_step(
                 input_tensor, output_tensor, output_tensor_grad, model_type, config, 
-                last_iteration=(not last_iteration) or (num_warmup_microbatches == 0)
+                last_iteration=last_iteration and (num_warmup_microbatches == 0)
             )
 
             if last_iteration:
